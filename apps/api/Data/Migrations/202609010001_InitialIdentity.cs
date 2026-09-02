@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 #nullable disable
 
 namespace PlanVest.Api.Data.Migrations;
 
+[DbContext(typeof(AppDbContext))]
+[Migration("202609010001_InitialIdentity")]
 public partial class InitialIdentity : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

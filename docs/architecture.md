@@ -1,22 +1,108 @@
-# Architecture
+# PlanVest architecture
 
 ## Runtime shape
 
 ```mermaid
 flowchart LR
-  Web[Next.js web] -->|HTTPS / JSON| Api[ASP.NET Core API]
-  Api --> Auth[JWT authentication]
-  Api --> Db[(EF Core database)]
-  Api --> Calc[Planning services]
+  Web[Next.js web client] -->|HTTPS / JSON / bearer JWT| Api[ASP.NET Core API]
+  Api --> Auth[Password hashing + JWT validation]
+  Api --> Db[(EF Core / SQLite)]
+  Api --> Portfolio[Portfolio service]
+  Api --> Risk[Risk scoring service]
+  Api --> Goals[Goal planning service]
 ```
 
-The web client owns presentation and form state. The API owns authentication, authorization, validation, persisted financial data, and decimal-based calculations. Every user-owned query is filtered by the authenticated user identifier.
+The client owns presentation and temporary form state. The API owns identity,
+authorization, validation, persistence, and every financial calculation. The
+dashboard uses one aggregate read model, while mutations use resource-oriented
+endpoints. This keeps the interview demo fast without hiding the underlying CRUD
+contract.
+
+## Request flow
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as API
+  participant T as Token validation
+  participant D as EF Core
+  B->>A: GET /api/dashboard + bearer token
+  A->>T: Verify signature, expiry, subject, token version
+  T->>D: Read current user token version
+  D-->>T: Active version
+  A->>D: Query accounts, holdings, risk, and goals by subject ID
+  D-->>A: User-scoped records
+  A-->>B: Typed dashboard read model
+```
 
 ## Authentication decision
 
-Milestone 1 uses short-lived bearer tokens for a deployment-neutral API contract. Passwords are hashed with ASP.NET Core's `PasswordHasher`; raw passwords are never stored or logged. A production deployment should place tokens in an HttpOnly secure cookie through a same-origin backend-for-frontend or use an audited identity provider.
+Passwords use ASP.NET Core's `PasswordHasher`. A successful registration, login,
+or demo-session request issues a 30-minute JWT containing the user subject and a
+token-version claim. JWT middleware checks that version against the database on
+every protected request. Logout increments the stored version, so the token is
+rejected even if the browser retained it.
 
-## Data isolation rule
+The bearer token is kept in session storage for a transparent, split-origin local
+demo. A public production deployment should replace this with an HttpOnly,
+Secure, SameSite cookie behind a same-origin backend-for-frontend or an audited
+identity provider.
 
-Resource IDs alone never grant access. Each account, holding, assessment, and goal query includes the current user's ID. Cross-user requests return not found or forbidden without exposing another user's data.
+## Authorization and privacy
+
+Resource IDs are locators, not permissions. Every owned-resource query also
+includes the authenticated user ID. Cross-user reads and mutations return `404`
+without disclosing that another user's record exists. The demo endpoint creates a
+new synthetic user and data graph instead of sharing a mutable global account.
+
+## Domain and deletion rules
+
+```mermaid
+erDiagram
+  USER ||--o{ INVESTMENT_ACCOUNT : owns
+  INVESTMENT_ACCOUNT ||--o{ HOLDING : contains
+  INVESTMENT_ACCOUNT ||--o{ PORTFOLIO_TRANSACTION : records
+  HOLDING o|--o{ PORTFOLIO_TRANSACTION : references
+  USER ||--o{ RISK_ASSESSMENT : completes
+  USER ||--o{ FINANCIAL_GOAL : plans
+```
+
+- Deleting an account cascades to its holdings and transaction records.
+- Deleting a holding keeps account transaction history and clears the optional
+  holding reference.
+- Deleting a user cascades through all owned data.
+- Risk answers are stored with the scoring version so historical results remain
+  explainable when a future questionnaire changes.
+
+## Financial calculations
+
+Persisted money and quantities use C# `decimal`. Portfolio market value is the
+sum of quantity × current price, allocation is grouped from that market value,
+and monetary display values use midpoint rounding away from zero. Goal projections
+use monthly compounding and have a separate zero-rate path to avoid division by
+zero. Inputs are constrained to finite product ranges before calculations run.
+
+## Local database and portability
+
+The local SQLite database lives under `apps/api` regardless of the shell's current
+directory. Startup applies committed migrations. The EF model snapshot is
+committed so the next schema change produces a differential migration. Mappings
+avoid SQLite-specific domain behaviour and are suitable for a later PostgreSQL
+provider, although production configuration is intentionally outside this MVP.
+
+SQLite cannot translate `DateTimeOffset` ordering. Queries first filter by user
+in SQL and then order the already-scoped, small result set in memory. This keeps
+correctness explicit and prevents unbounded cross-user materialization.
+
+## Reliability and verification
+
+- RFC 7807 problem responses include a trace ID.
+- Registration, login, and demo-session requests use a per-client-IP fixed-window
+  rate limiter; rejected requests return HTTP 429.
+- OpenAPI is available in development.
+- Unit tests cover risk thresholds, decimal allocation, goal progress, and
+  projection boundaries.
+- Integration tests start a real Kestrel process, migrate a fresh SQLite database,
+  and verify authentication, logout invalidation, demo seeding, planning, and
+  cross-user isolation over HTTP.
 

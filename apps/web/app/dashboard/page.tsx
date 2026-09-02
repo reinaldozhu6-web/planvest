@@ -1,26 +1,56 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, ChevronDown, CircleDollarSign, Gauge, LayoutDashboard, LogOut, Menu, Plus, Settings, ShieldCheck, Target, TrendingUp, WalletCards } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Bell, CircleDollarSign, Gauge, LayoutDashboard, LogOut, Menu, ShieldCheck, Target, TrendingUp, WalletCards } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import PortfolioSection from "../components/PortfolioSection";
+import RiskSection from "../components/RiskSection";
+import PlanningSection from "../components/PlanningSection";
+import { ApiError, apiFetch, currency, hasSession, label, logout } from "../lib/api";
+import type { DashboardData } from "../lib/types";
 
-const allocation = [
-  { name: "Canadian equity", value: 30, color: "#74b8aa" },
-  { name: "US equity", value: 34, color: "#4e8178" },
-  { name: "International equity", value: 16, color: "#c5a36a" },
-  { name: "Fixed income", value: 15, color: "#8d7ab8" },
-  { name: "Cash", value: 5, color: "#66736f" },
-];
+const colors = ["#74b8aa", "#4e8178", "#c5a36a", "#8d7ab8", "#66736f", "#b87474"];
 
-const holdings = [
-  { symbol: "XEQT", name: "iShares Core Equity ETF", account: "TFSA", value: "$28,410.75", weight: "33.7%", change: "+9.4%" },
-  { symbol: "VFV", name: "Vanguard S&P 500 ETF", account: "TFSA", value: "$22,068.40", weight: "26.2%", change: "+12.1%" },
-  { symbol: "XBB", name: "iShares Canadian Bond ETF", account: "RRSP", value: "$12,637.56", weight: "15.0%", change: "+2.8%" },
-  { symbol: "XIC", name: "iShares Core S&P/TSX ETF", account: "RRSP", value: "$10,813.70", weight: "12.8%", change: "+7.2%" },
-];
-
-function SideNav() { return <aside className="sidebar"><Link className="brand" href="/"><span>PV</span>PlanVest</Link><nav><a className="active"><LayoutDashboard />Overview</a><a><WalletCards />Accounts</a><a><Gauge />Risk profile</a><a><Target />Goals</a><a><TrendingUp />Simulator</a></nav><div className="sidebar-bottom"><a><Settings />Settings</a><Link href="/"><LogOut />Exit demo</Link><div className="demo-person"><span>AC</span><div><b>Alex Chen</b><small>Demo workspace</small></div></div></div></aside>; }
+function SideNav({ name, onLogout }: { name: string; onLogout: () => void }) {
+  const initials = name.split(" ").map(value => value[0]).join("").slice(0, 2).toUpperCase();
+  return <aside className="sidebar"><Link className="brand" href="/"><span>PV</span>PlanVest</Link><nav><a className="active" href="#overview"><LayoutDashboard />Overview</a><a href="#portfolio"><WalletCards />Accounts</a><a href="#risk"><Gauge />Risk profile</a><a href="#planning"><Target />Goals & plan</a><a href="#simulator"><TrendingUp />Simulator</a></nav><div className="sidebar-bottom"><button type="button" className="sidebar-link" onClick={onLogout}><LogOut />Sign out</button><div className="demo-person"><span>{initials}</span><div><b>{name}</b><small>Private workspace</small></div></div></div></aside>;
+}
 
 export default function Dashboard() {
-  return <main className="dashboard"><SideNav /><section className="dashboard-main"><header className="dash-topbar"><button className="mobile-menu" aria-label="Open navigation"><Menu /></button><div><p>Tuesday, September 1</p><h1>Good afternoon, Alex.</h1></div><div className="top-actions"><button aria-label="Notifications"><Bell /></button><button className="account-switch"><span>All accounts</span><ChevronDown /></button></div></header><div className="demo-banner"><ShieldCheck /><span><b>Synthetic demo workspace</b> — Explore every feature without entering personal financial information.</span></div><section className="summary-grid"><article className="summary-card featured"><div className="card-label"><span>Total portfolio</span><CircleDollarSign /></div><strong>$84,250.40</strong><p><b>+$6,921.18</b> all time · 8.95%</p><div className="sparkline"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></article><article className="summary-card"><div className="card-label"><span>Monthly contributions</span><TrendingUp /></div><strong>$1,250.00</strong><p>Across 2 investment accounts</p><div className="progress"><span style={{width:"68%"}} /></div><small>68% of monthly target</small></article><article className="summary-card"><div className="card-label"><span>Primary goal</span><Target /></div><strong>Home deposit</strong><p><b>$32,100</b> of $50,000</p><div className="progress gold"><span style={{width:"64%"}} /></div><small>64% funded · Sep 2028 target</small></article></section><section className="dashboard-content"><article className="dash-panel allocation-panel"><div className="panel-title"><div><p>Portfolio</p><h2>Asset allocation</h2></div><button className="quiet-button">View analysis</button></div><div className="allocation-content"><div className="donut"><ResponsiveContainer width="100%" height="100%" initialDimension={{width:220,height:220}}><PieChart><Pie data={allocation} dataKey="value" innerRadius={67} outerRadius={91} paddingAngle={2} stroke="none">{allocation.map(item => <Cell key={item.name} fill={item.color} />)}</Pie><Tooltip contentStyle={{background:"#14201c",border:"1px solid #2a3a34",borderRadius:8,color:"#eef4f1"}} formatter={value => `${value}%`} /></PieChart></ResponsiveContainer><div><strong>80%</strong><span>equity</span></div></div><div className="allocation-list">{allocation.map(item => <div key={item.name}><i style={{background:item.color}} /><span>{item.name}</span><b>{item.value}%</b></div>)}</div></div></article><article className="dash-panel risk-panel"><div className="panel-title"><div><p>Risk assessment</p><h2>Balanced growth</h2></div><span className="score-pill">68 / 100</span></div><div className="risk-meter"><i /><span style={{left:"68%"}} /></div><div className="risk-labels"><span>Conservative</span><span>Balanced</span><span>Growth</span></div><p className="risk-copy">Your long time horizon supports growth, while your stated response to losses suggests keeping a stabilizing fixed-income allocation.</p><button className="outline-button full">Review your answers</button><small>Educational model · Not investment advice</small></article></section><section className="dash-panel holdings-panel"><div className="panel-title"><div><p>Across all accounts</p><h2>Top holdings</h2></div><button className="button compact"><Plus /> Add holding</button></div><div className="responsive-table"><table><thead><tr><th>Holding</th><th>Account</th><th>Market value</th><th>Weight</th><th>Return</th></tr></thead><tbody>{holdings.map(item => <tr key={item.symbol}><td><div className="holding-name"><span>{item.symbol.slice(0,2)}</span><div><b>{item.symbol}</b><small>{item.name}</small></div></div></td><td><span className="tag">{item.account}</span></td><td><b>{item.value}</b></td><td>{item.weight}</td><td className="positive">{item.change}</td></tr>)}</tbody></table></div></section></section></main>;
+  const router = useRouter();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try { setData(await apiFetch<DashboardData>("/api/dashboard")); setError(""); }
+    catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) { router.replace("/login"); return; }
+      setError(reason instanceof Error ? reason.message : "Could not load the dashboard.");
+    }
+  }, [router]);
+
+  useEffect(() => {
+    const startup = window.setTimeout(() => {
+      if (!hasSession()) router.replace("/login"); else void load();
+    }, 0);
+    return () => window.clearTimeout(startup);
+  }, [load, router]);
+
+  async function signOut() { await logout(); router.replace("/"); }
+
+  if (!data) return <main className="loading-page"><Link className="brand" href="/"><span>PV</span>PlanVest</Link><div className="loading-mark" /><p>{error || "Loading your planning workspace…"}</p>{error && <button className="outline-button" onClick={() => void load()}>Try again</button>}</main>;
+
+  const allocation = data.portfolio.allocation.map((item, index) => ({ ...item, name: label(item.assetClass), color: colors[index % colors.length] }));
+  const primaryGoal = data.goals.find(goal => goal.status === "Active");
+  const firstName = data.user.displayName.split(" ")[0];
+
+  return <main className="dashboard"><SideNav name={data.user.displayName} onLogout={() => void signOut()} /><section className="dashboard-main" id="overview"><header className="dash-topbar"><button className="mobile-menu" aria-label="Open navigation"><Menu /></button><div><p>{new Date().toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" })}</p><h1>Welcome back, {firstName}.</h1></div><div className="top-actions"><button aria-label="Notifications"><Bell /></button><span className="workspace-label">CAD workspace</span></div></header><div className="demo-banner"><ShieldCheck /><span><b>Educational planning workspace</b> — Prices are manually entered and all projections are estimates, not financial advice.</span></div>{error && <p className="workspace-error" role="alert">{error}</p>}
+    <section className="summary-grid"><article className="summary-card featured"><div className="card-label"><span>Total portfolio</span><CircleDollarSign /></div><strong>{currency(data.portfolio.totalMarketValue)}</strong><p>Across <b>{data.portfolio.accountCount}</b> account{data.portfolio.accountCount === 1 ? "" : "s"}</p><div className="sparkline"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></article><article className="summary-card"><div className="card-label"><span>Portfolio positions</span><WalletCards /></div><strong>{data.portfolio.holdingCount}</strong><p>Manually priced holding{data.portfolio.holdingCount === 1 ? "" : "s"}</p><div className="progress"><span style={{ width: `${Math.min(100, data.portfolio.holdingCount * 12)}%` }} /></div><small>Add holdings to build the allocation view</small></article><article className="summary-card"><div className="card-label"><span>Primary goal</span><Target /></div><strong>{primaryGoal?.name ?? "Set a goal"}</strong><p>{primaryGoal ? <><b>{currency(primaryGoal.currentAmount)}</b> of {currency(primaryGoal.targetAmount)}</> : "Model a target and contribution"}</p><div className="progress gold"><span style={{ width: `${primaryGoal?.progressPercentage ?? 0}%` }} /></div><small>{primaryGoal ? `${primaryGoal.progressPercentage}% funded` : "No active goal"}</small></article></section>
+    <section className="dashboard-content"><article className="dash-panel allocation-panel"><div className="panel-title"><div><p>Live portfolio</p><h2>Asset allocation</h2></div><a className="quiet-button" href="#planning">View plan</a></div>{allocation.length ? <div className="allocation-content"><div className="donut"><ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 220, height: 220 }}><PieChart><Pie data={allocation} dataKey="percentage" innerRadius={67} outerRadius={91} paddingAngle={2} stroke="none">{allocation.map(item => <Cell key={item.assetClass} fill={item.color} />)}</Pie><Tooltip contentStyle={{ background: "#14201c", border: "1px solid #2a3a34", borderRadius: 8, color: "#eef4f1" }} formatter={value => `${Number(value).toFixed(1)}%`} /></PieChart></ResponsiveContainer><div><strong>{data.portfolio.holdingCount}</strong><span>positions</span></div></div><div className="allocation-list">{allocation.map(item => <div key={item.assetClass}><i style={{ background: item.color }} /><span>{item.name}</span><b>{item.percentage}%</b></div>)}</div></div> : <div className="empty-state compact-empty"><h3>No allocation yet</h3><p>Add a holding to calculate market value and allocation.</p></div>}</article><article className="dash-panel risk-panel"><div className="panel-title"><div><p>Risk assessment</p><h2>{data.latestRiskAssessment?.riskProfile ?? "Not assessed"}</h2></div>{data.latestRiskAssessment && <span className="score-pill">{data.latestRiskAssessment.totalScore} / 100</span>}</div><div className="risk-meter"><i /><span style={{ left: `${data.latestRiskAssessment?.totalScore ?? 50}%` }} /></div><div className="risk-labels"><span>Conservative</span><span>Balanced</span><span>Growth</span></div><p className="risk-copy">{data.latestRiskAssessment?.rationale ?? "Complete seven explainable questions to select a generic model allocation."}</p><a className="outline-button full" href="#risk">{data.latestRiskAssessment ? "Review assessment" : "Start assessment"}</a><small>Educational model · Not investment advice</small></article></section>
+    <PortfolioSection accounts={data.accounts} onChanged={load} />
+    <RiskSection assessment={data.latestRiskAssessment} onChanged={load} />
+    <PlanningSection comparison={data.allocationComparison} goals={data.goals} onChanged={load} />
+  </section></main>;
 }
