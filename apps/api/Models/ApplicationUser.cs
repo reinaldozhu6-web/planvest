@@ -7,6 +7,8 @@ public sealed class ApplicationUser
     public required string Email { get; set; }
     public required string NormalizedEmail { get; set; }
     public required string PasswordHash { get; set; }
+    public int TokenVersion { get; set; }
+    public bool IsDemo { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastLoginAt { get; set; }
 }

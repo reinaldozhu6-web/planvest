@@ -16,6 +16,8 @@ public sealed class TokenService(IConfiguration configuration)
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim("name", user.DisplayName),
+            new Claim("token_version", user.TokenVersion.ToString()),
+            new Claim("is_demo", user.IsDemo.ToString().ToLowerInvariant()),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 

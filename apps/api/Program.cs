@@ -1,23 +1,39 @@
 using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using PlanVest.Api.Contracts;
 using PlanVest.Api.Data;
+using PlanVest.Api.Endpoints;
 using PlanVest.Api.Models;
 using PlanVest.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
+var databaseConnection = new SqliteConnectionStringBuilder(
+    builder.Configuration.GetConnectionString("DefaultConnection"));
+if (!Path.IsPathRooted(databaseConnection.DataSource))
+    databaseConnection.DataSource = Path.GetFullPath(databaseConnection.DataSource,
+        builder.Environment.ContentRootPath);
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlite(databaseConnection.ConnectionString));
 builder.Services.AddScoped<IPasswordHasher<ApplicationUser>, PasswordHasher<ApplicationUser>>();
 builder.Services.AddScoped<TokenService>();
-builder.Services.AddProblemDetails();
+builder.Services.AddScoped<PortfolioService>();
+builder.Services.AddScoped<DemoSeeder>();
+builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
+    context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier);
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options => options.AddPolicy("web", policy => policy
@@ -30,6 +46,7 @@ var jwtKey = builder.Configuration["Jwt:Key"]
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -40,6 +57,27 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.FromSeconds(30)
+        };
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var subject = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                var version = context.Principal?.FindFirst("token_version")?.Value;
+                if (!Guid.TryParse(subject, out var userId) || !int.TryParse(version, out var tokenVersion))
+                {
+                    context.Fail("Invalid token claims.");
+                    return;
+                }
+
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var currentVersion = await db.Users.AsNoTracking()
+                    .Where(value => value.Id == userId)
+                    .Select(value => (int?)value.TokenVersion)
+                    .SingleOrDefaultAsync();
+                if (currentVersion is null || currentVersion.Value != tokenVersion)
+                    context.Fail("The session is no longer active.");
+            }
         };
     });
 builder.Services.AddAuthorization();
@@ -59,71 +97,25 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler();
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"))
+    app.UseHttpsRedirection();
 app.UseCors("web");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-var auth = app.MapGroup("/api/auth").RequireRateLimiting("auth");
-
-auth.MapPost("/register", async (RegisterRequest request, AppDbContext db,
-    IPasswordHasher<ApplicationUser> passwordHasher, TokenService tokens) =>
-{
-    var normalizedEmail = request.Email.Trim().ToUpperInvariant();
-    if (await db.Users.AnyAsync(user => user.NormalizedEmail == normalizedEmail))
-        return Results.Conflict(new ProblemDetails
-        {
-            Title = "Email already registered",
-            Detail = "Use a different email address or sign in.",
-            Status = StatusCodes.Status409Conflict
-        });
-
-    var user = new ApplicationUser
-    {
-        DisplayName = request.DisplayName.Trim(),
-        Email = request.Email.Trim(),
-        NormalizedEmail = normalizedEmail,
-        PasswordHash = string.Empty
-    };
-    user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
-    db.Users.Add(user);
-    await db.SaveChangesAsync();
-
-    var issued = tokens.Create(user);
-    return Results.Created("/api/auth/me", new AuthResponse(
-        issued.Token, issued.ExpiresAt, new UserResponse(user.Id, user.DisplayName, user.Email)));
-});
-
-auth.MapPost("/login", async (LoginRequest request, AppDbContext db,
-    IPasswordHasher<ApplicationUser> passwordHasher, TokenService tokens) =>
-{
-    var normalizedEmail = request.Email.Trim().ToUpperInvariant();
-    var user = await db.Users.SingleOrDefaultAsync(value => value.NormalizedEmail == normalizedEmail);
-    if (user is null || passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password)
-        == PasswordVerificationResult.Failed)
-        return Results.Problem(title: "Invalid credentials", statusCode: StatusCodes.Status401Unauthorized);
-
-    user.LastLoginAt = DateTimeOffset.UtcNow;
-    await db.SaveChangesAsync();
-    var issued = tokens.Create(user);
-    return Results.Ok(new AuthResponse(
-        issued.Token, issued.ExpiresAt, new UserResponse(user.Id, user.DisplayName, user.Email)));
-});
-
-auth.MapPost("/logout", () => Results.NoContent()).RequireAuthorization();
-
-auth.MapGet("/me", async (System.Security.Claims.ClaimsPrincipal principal, AppDbContext db) =>
-{
-    var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
-    if (!Guid.TryParse(subject, out var userId)) return Results.Unauthorized();
-    var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(value => value.Id == userId);
-    return user is null
-        ? Results.Unauthorized()
-        : Results.Ok(new UserResponse(user.Id, user.DisplayName, user.Email));
-}).RequireAuthorization();
-
+app.MapAuthEndpoints();
+app.MapPortfolioEndpoints();
+app.MapPlanningEndpoints();
+app.MapDashboardEndpoints();
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy" }));
+
+using (var scope = app.Services.CreateScope())
+{
+    var database = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    if (database.Database.IsRelational()) await database.Database.MigrateAsync();
+    else await database.Database.EnsureCreatedAsync();
+}
 
 app.Run();
 

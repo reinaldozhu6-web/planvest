@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ArrowRight, BarChart3, Check, ShieldCheck, Sparkles, Target } from "lucide-react";
+import { BarChart3, Check, ShieldCheck, Sparkles, Target } from "lucide-react";
+import DemoButton from "./components/DemoButton";
 
 export default function Home() {
   return <main className="landing">
@@ -12,7 +13,7 @@ export default function Home() {
         <p className="eyebrow"><Sparkles size={14} /> Educational investing workspace</p>
         <h1>See your portfolio.<br />Plan with purpose.</h1>
         <p>Bring simulated accounts, risk tolerance, and financial goals into one calm, explainable dashboard.</p>
-        <div className="hero-actions"><Link className="button" href="/dashboard">Explore demo <ArrowRight size={17} /></Link><Link className="outline-button" href="/register">Build my plan</Link></div>
+        <div className="hero-actions"><DemoButton /><Link className="outline-button" href="/register">Build my plan</Link></div>
         <p className="fine-print"><ShieldCheck size={14} /> No brokerage connection. No trades. No financial advice.</p>
       </div>
       <div className="hero-card" aria-label="Sample portfolio overview">
