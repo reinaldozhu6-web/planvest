@@ -32,4 +32,46 @@ jobs:
       - run: dotnet restore PlanVest.sln
       - run: dotnet build PlanVest.sln --configuration Release --no-restore
       - run: dotnet test PlanVest.sln --configuration Release --no-build
+      - run: docker build --file apps/api/Dockerfile --tag planvest-api:ci .
+
+  postgresql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: planvest
+          POSTGRES_PASSWORD: planvest-ci-password
+          POSTGRES_DB: planvest_integration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U planvest -d planvest_integration"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PLANVEST_POSTGRES_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=planvest_integration;Username=planvest;Password=planvest-ci-password
+      PLANVEST_MIGRATIONS_CONNECTION: Host=127.0.0.1;Port=5432;Database=planvest_migration;Username=planvest;Password=planvest-ci-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet tool restore
+      - run: dotnet restore PlanVest.sln
+      - run: dotnet build PlanVest.sln --configuration Release --no-restore
+      - name: PostgreSQL integration test
+        run: >-
+          dotnet test PlanVest.sln --configuration Release --no-build
+          --filter FullyQualifiedName~PostgreSqlIntegrationTests
+      - name: Validate fresh PostgreSQL migration
+        run: |
+          docker exec ${{ job.services.postgres.id }} createdb -U planvest planvest_migration
+          dotnet tool run dotnet-ef database update --project apps/api --startup-project apps/api --context AppDbContext --no-build --configuration Release --connection "$PLANVEST_MIGRATIONS_CONNECTION"
+      - name: Check for pending model changes
+        run: >-
+          dotnet tool run dotnet-ef migrations has-pending-model-changes
+          --project apps/api --startup-project apps/api --context AppDbContext
+          --no-build --configuration Release
 

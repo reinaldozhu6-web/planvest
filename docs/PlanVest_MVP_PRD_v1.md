@@ -1,7 +1,7 @@
 # PlanVest MVP — Product Requirements Document
 
 **Version:** 1.0  
-**Status:** Approved; implementation in progress on PR #1 — September 1, 2026
+**Status:** MVP complete; deployment readiness in progress — September 2, 2026
 **Product owner:** Reinaldo Pang  
 **Product manager:** Codex  
 **Target:** Backend/full-stack software engineering interviews  

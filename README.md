@@ -24,8 +24,9 @@ toward financial goals.
   required-contribution calculations
 - An isolated synthetic demo workspace that a reviewer can open without sharing
   personal information
-- EF Core migrations, OpenAPI, RFC 7807 errors, rate limiting, responsive UI,
-  CI, unit tests, and real HTTP/SQLite integration tests
+- PostgreSQL production migrations, SQLite local development, OpenAPI, RFC 7807
+  errors, rate limiting, responsive UI, CI, unit tests, and real HTTP integration
+  tests against both database providers
 
 ## Architecture
 
@@ -34,7 +35,7 @@ flowchart LR
   Browser[Next.js / React client] -->|Bearer JWT + JSON| API[ASP.NET Core minimal API]
   API --> Auth[Password hasher + token-version validation]
   API --> Services[Portfolio, risk, and goal services]
-  API --> DB[(SQLite via EF Core)]
+  API --> DB[(PostgreSQL production / SQLite local)]
 ```
 
 The web client owns presentation and form state. The API is authoritative for
@@ -47,7 +48,7 @@ apps/web/                   Next.js client and typed API adapter
 apps/api/Endpoints/         Thin HTTP endpoint modules
 apps/api/Models/            Relational domain model
 apps/api/Services/          Deterministic business logic
-apps/api/Data/Migrations/   Reproducible SQLite schema
+apps/api/Data/Migrations/   Reproducible PostgreSQL production schema
 tests/PlanVest.Api.Tests/   Unit and real-process integration tests
 docs/                       PRD, implementation contract, architecture, interview guide
 ```
@@ -59,7 +60,7 @@ See [the approved PRD](docs/PlanVest_MVP_PRD_v1.md),
 ## Technology
 
 - Next.js 16, React 19, TypeScript, Recharts, Lucide
-- ASP.NET Core 8, C#, EF Core 8, SQLite, OpenAPI
+- ASP.NET Core 8, C#, EF Core 8, PostgreSQL, SQLite, OpenAPI
 - xUnit and GitHub Actions
 - Node.js 22 and .NET 8 in CI
 
@@ -75,9 +76,10 @@ dotnet restore PlanVest.sln
 dotnet run --project apps/api/PlanVest.Api.csproj
 ```
 
-The API listens on `http://localhost:5080`, applies committed migrations to
+The API listens on `http://localhost:5080`, creates the local SQLite database at
 `apps/api/planvest.db`, and exposes Swagger in development at
-`http://localhost:5080/swagger`.
+`http://localhost:5080/swagger`. PostgreSQL migrations are reserved for the
+production provider so local onboarding does not require Docker.
 
 The fixed local JWT key exists only in `appsettings.Development.json`. Production
 does not inherit it: startup fails unless `Jwt__Key` is provided, and the API
@@ -108,10 +110,36 @@ npm run lint
 npm run build
 ```
 
-The API suite covers financial boundaries and runs two workflows against a real
-Kestrel process and freshly migrated SQLite database: protected portfolio/user
-isolation, and demo/risk/goal/simulation. CI performs the same backend checks and
-a clean frontend install, lint, and production build.
+The API suite covers financial boundaries and runs workflows against a real
+Kestrel process and fresh SQLite database. CI additionally builds the production
+Docker image, applies migrations to an empty PostgreSQL 16 database, and runs a
+PostgreSQL API workflow before performing the clean frontend lint/build.
+
+## Deploy
+
+The low-cost reference deployment uses Vercel for the Next.js client and Railway
+for the Dockerized API plus PostgreSQL. No production credential belongs in this
+repository. See [the deployment runbook](docs/DEPLOYMENT.md) for required
+variables, provisioning order, validation, backups, and rollback.
+
+### PostgreSQL migrations
+
+The repository pins the EF Core CLI through its local tool manifest. Set
+`PLANVEST_MIGRATIONS_CONNECTION` to a protected Npgsql connection string, then
+run migrations from the repository root:
+
+```bash
+dotnet tool restore
+dotnet tool run dotnet-ef database update \
+  --project apps/api --startup-project apps/api --context AppDbContext
+```
+
+Create future PostgreSQL migrations with `dotnet tool run dotnet-ef migrations
+add <MigrationName>` plus the same project, startup-project, and context options.
+Review the generated SQL/model snapshot and take a database backup before
+applying any production migration. Application rollback does not automatically
+reverse schema changes; use backward-compatible migrations and the recovery
+procedure in the deployment runbook.
 
 ## Representative API surface
 
@@ -134,6 +162,9 @@ Swagger is the complete, executable contract.
 - Registration, login, and demo-session requests are rate-limited per client IP
   and return HTTP `429` when the limit is reached. CORS accepts only the
   configured web origin.
+- Railway proxy headers are processed only when `Hosting__Provider=Railway`; the
+  trusted network and one-hop limit keep client-IP rate limiting meaningful
+  behind TLS termination.
 - Cross-user IDs return `404` without disclosing ownership.
 - Persisted quantities and money use C# `decimal`; displayed monetary rounding
   uses `MidpointRounding.AwayFromZero`.
@@ -147,9 +178,9 @@ transparent, interview-scale trade-off, not the final hardening step.
 
 ## Current delivery status
 
-The MVP is implemented on `codex/mvp-foundation` and reviewed through PR #1.
-`main` remains unchanged until the product owner explicitly approves a merge.
-Public hosting, brokerage/market-data connections, refresh tokens, password
-reset, email verification, CSV export, and production telemetry are intentionally
-deferred.
+The MVP is merged into `main`. Deployment-readiness work is isolated on
+`codex/deployment-readiness`; public cloud resources are not created until the
+product owner separately approves deployment. Brokerage/market-data connections,
+refresh tokens, password reset, email verification, CSV export, and production
+telemetry remain intentionally deferred.
 

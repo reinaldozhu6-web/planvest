@@ -192,20 +192,29 @@ public sealed class ApiIntegrationTests : IClassFixture<PlanVestApiHost>
 public sealed class PlanVestApiHost : IAsyncLifetime
 {
     private readonly Process process;
-    private readonly string databasePath;
+    private readonly string? databasePath;
     private readonly StringBuilder output = new();
     public HttpClient Client { get; }
     public string Output => output.ToString();
 
     public PlanVestApiHost() : this(null) { }
 
-    internal PlanVestApiHost(int? authPermitLimit)
+    internal PlanVestApiHost(
+        int? authPermitLimit,
+        string databaseProvider = "Sqlite",
+        string? connectionString = null,
+        bool trustRailwayProxy = false)
     {
         var port = AvailablePort();
         var repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
             "..", "..", "..", "..", ".."));
         var projectPath = Path.Combine(repositoryRoot, "apps", "api", "PlanVest.Api.csproj");
-        databasePath = Path.Combine(Path.GetTempPath(), $"planvest-tests-{Guid.NewGuid():N}.db");
+        databasePath = databaseProvider.Equals("Sqlite", StringComparison.OrdinalIgnoreCase)
+            ? Path.Combine(Path.GetTempPath(), $"planvest-tests-{Guid.NewGuid():N}.db")
+            : null;
+        connectionString ??= databasePath is null
+            ? throw new ArgumentException("A PostgreSQL connection string is required.", nameof(connectionString))
+            : $"Data Source={databasePath}";
 
         var start = new ProcessStartInfo("dotnet")
         {
@@ -224,9 +233,11 @@ public sealed class PlanVestApiHost : IAsyncLifetime
         start.ArgumentList.Add(projectPath);
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Testing";
         start.Environment["ASPNETCORE_URLS"] = $"http://127.0.0.1:{port}";
-        start.Environment["ConnectionStrings__DefaultConnection"] = $"Data Source={databasePath}";
+        start.Environment["Database__Provider"] = databaseProvider;
+        start.Environment["ConnectionStrings__DefaultConnection"] = connectionString;
         start.Environment["Jwt__Key"] = "testing-only-signing-key-never-use-in-production-2026";
         start.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+        if (trustRailwayProxy) start.Environment["Hosting__Provider"] = "Railway";
         if (authPermitLimit is not null)
             start.Environment["RateLimiting__AuthPermitLimit"] = authPermitLimit.Value.ToString();
 
@@ -270,9 +281,12 @@ public sealed class PlanVestApiHost : IAsyncLifetime
             await process.WaitForExitAsync();
         }
         process.Dispose();
-        DeleteIfPresent(databasePath);
-        DeleteIfPresent($"{databasePath}-shm");
-        DeleteIfPresent($"{databasePath}-wal");
+        if (databasePath is not null)
+        {
+            DeleteIfPresent(databasePath);
+            DeleteIfPresent($"{databasePath}-shm");
+            DeleteIfPresent($"{databasePath}-wal");
+        }
     }
 
     private static int AvailablePort()
@@ -299,6 +313,7 @@ public sealed class AuthRateLimitIntegrationTests : IClassFixture<RateLimitedPla
     [Fact]
     public async Task AuthRateLimit_IsClientPartitionedAndReturnsTooManyRequests()
     {
+        client.DefaultRequestHeaders.Add("X-Real-IP", "198.51.100.10");
         var first = await client.PostAsync("/api/auth/demo-session", null);
         var second = await client.PostAsync("/api/auth/demo-session", null);
         var rejected = await client.PostAsync("/api/auth/demo-session", null);
@@ -306,6 +321,11 @@ public sealed class AuthRateLimitIntegrationTests : IClassFixture<RateLimitedPla
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(HttpStatusCode.Created, second.StatusCode);
         Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
+
+        client.DefaultRequestHeaders.Remove("X-Real-IP");
+        client.DefaultRequestHeaders.Add("X-Real-IP", "198.51.100.11");
+        Assert.Equal(HttpStatusCode.Created,
+            (await client.PostAsync("/api/auth/demo-session", null)).StatusCode);
 
         var firstBody = await first.Content.ReadFromJsonAsync<JsonElement>();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
@@ -316,8 +336,78 @@ public sealed class AuthRateLimitIntegrationTests : IClassFixture<RateLimitedPla
 
 public sealed class RateLimitedPlanVestApiHost : IAsyncLifetime
 {
-    private readonly PlanVestApiHost inner = new(authPermitLimit: 2);
+    private readonly PlanVestApiHost inner = new(authPermitLimit: 2, trustRailwayProxy: true);
     public HttpClient Client => inner.Client;
     public Task InitializeAsync() => inner.InitializeAsync();
     public Task DisposeAsync() => inner.DisposeAsync();
+}
+
+public sealed class PostgreSqlIntegrationTests
+{
+    [PostgreSqlFact]
+    public async Task FreshDatabase_AppliesMigrationsAndRunsCoreWorkflow()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("PLANVEST_POSTGRES_TEST_CONNECTION")!;
+        var host = new PlanVestApiHost(
+            authPermitLimit: null,
+            databaseProvider: "PostgreSql",
+            connectionString: connectionString);
+
+        try
+        {
+            await host.InitializeAsync();
+            using var client = host.Client;
+
+            var health = await client.GetFromJsonAsync<JsonElement>("/api/health");
+            Assert.Equal("healthy", health.GetProperty("status").GetString());
+
+            var registration = await client.PostAsJsonAsync("/api/auth/register", new
+            {
+                displayName = "PostgreSQL User",
+                email = $"postgres-{Guid.NewGuid():N}@example.test",
+                password = "PostgreSQL-test-password-2026"
+            });
+            Assert.Equal(HttpStatusCode.Created, registration.StatusCode);
+            var registrationBody = await registration.Content.ReadFromJsonAsync<JsonElement>();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                "Bearer", registrationBody.GetProperty("accessToken").GetString());
+
+            var account = await client.PostAsJsonAsync("/api/accounts", new
+            {
+                name = "PostgreSQL TFSA",
+                accountType = "Tfsa"
+            });
+            Assert.Equal(HttpStatusCode.Created, account.StatusCode);
+            var accountBody = await account.Content.ReadFromJsonAsync<JsonElement>();
+            var accountId = accountBody.GetProperty("id").GetGuid();
+
+            var holding = await client.PostAsJsonAsync($"/api/accounts/{accountId}/holdings", new
+            {
+                symbol = "PG",
+                assetName = "PostgreSQL validation holding",
+                assetClass = "CanadianEquity",
+                quantity = 2.5m,
+                averageCost = 40m,
+                currentPrice = 42m
+            });
+            Assert.Equal(HttpStatusCode.Created, holding.StatusCode);
+
+            var summary = await client.GetFromJsonAsync<JsonElement>("/api/portfolio/summary");
+            Assert.Equal(105m, summary.GetProperty("totalMarketValue").GetDecimal());
+        }
+        finally
+        {
+            await host.DisposeAsync();
+        }
+    }
+}
+
+public sealed class PostgreSqlFactAttribute : FactAttribute
+{
+    public PostgreSqlFactAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(
+            Environment.GetEnvironmentVariable("PLANVEST_POSTGRES_TEST_CONNECTION")))
+            Skip = "Set PLANVEST_POSTGRES_TEST_CONNECTION to run PostgreSQL integration tests.";
+    }
 }

@@ -6,7 +6,8 @@
 flowchart LR
   Web[Next.js web client] -->|HTTPS / JSON / bearer JWT| Api[ASP.NET Core API]
   Api --> Auth[Password hashing + JWT validation]
-  Api --> Db[(EF Core / SQLite)]
+  Api --> Db[(EF Core / PostgreSQL production)]
+  Api -. local and test .-> Sqlite[(SQLite)]
   Api --> Portfolio[Portfolio service]
   Api --> Risk[Risk scoring service]
   Api --> Goals[Goal planning service]
@@ -82,13 +83,19 @@ and monetary display values use midpoint rounding away from zero. Goal projectio
 use monthly compounding and have a separate zero-rate path to avoid division by
 zero. Inputs are constrained to finite product ranges before calculations run.
 
-## Local database and portability
+## Database providers and migrations
 
-The local SQLite database lives under `apps/api` regardless of the shell's current
-directory. Startup applies committed migrations. The EF model snapshot is
-committed so the next schema change produces a differential migration. Mappings
-avoid SQLite-specific domain behaviour and are suitable for a later PostgreSQL
-provider, although production configuration is intentionally outside this MVP.
+Development and ordinary integration tests use SQLite so a reviewer can clone
+and run the project without provisioning infrastructure. SQLite startup uses the
+current EF model to create a disposable/local schema. Production selects Npgsql
+and applies the committed PostgreSQL migrations. The provider is explicit in
+`Database:Provider`; an unsupported provider or missing production connection
+string fails startup instead of silently falling back to a local file.
+
+The PostgreSQL model snapshot is committed so every future production schema
+change produces a reviewable differential migration. CI applies the complete
+migration chain to an empty PostgreSQL 16 database and checks for pending model
+changes.
 
 SQLite cannot translate `DateTimeOffset` ordering. Queries first filter by user
 in SQL and then order the already-scoped, small result set in memory. This keeps
@@ -102,7 +109,11 @@ correctness explicit and prevents unbounded cross-user materialization.
 - OpenAPI is available in development.
 - Unit tests cover risk thresholds, decimal allocation, goal progress, and
   projection boundaries.
-- Integration tests start a real Kestrel process, migrate a fresh SQLite database,
+- Integration tests start a real Kestrel process, create a fresh SQLite database,
   and verify authentication, logout invalidation, demo seeding, planning, and
   cross-user isolation over HTTP.
+- A PostgreSQL integration test starts the same API process, applies the
+  production migration, and exercises registration, account creation, holdings,
+  decimal persistence, and portfolio aggregation.
+- CI builds the exact multi-stage Dockerfile used by Railway.
 
