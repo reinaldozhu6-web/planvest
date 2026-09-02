@@ -1,8 +1,8 @@
 # PlanVest MVP implementation contract
 
 **Product source of truth:** [`PlanVest_MVP_PRD_v1.md`](PlanVest_MVP_PRD_v1.md)
-**Branch:** `codex/mvp-foundation`
-**Pull request:** #1 into `main`
+**Branch:** `codex/deployment-readiness`
+**Pull request:** #3 into `main`
 **Delivery rule:** do not merge without explicit product-owner approval
 
 This document turns the approved PRD into an executable engineering plan. A
@@ -17,8 +17,8 @@ the status table.
 | Repository | Next.js client and ASP.NET Core API monorepo | Makes the full request path visible in one interview project |
 | Authentication | 30-minute bearer JWT plus a server-checked token version | Simple local setup while allowing logout to invalidate issued tokens |
 | Passwords | ASP.NET Core `PasswordHasher` | Uses a reviewed adaptive password-hashing implementation |
-| Local database | SQLite with committed EF Core migrations | One-command onboarding and visible relational modelling |
-| Production database | Keep EF mappings portable to PostgreSQL | Avoid SQLite-only domain assumptions |
+| Local database | SQLite schema created from the current EF model | Preserve one-command onboarding without local infrastructure |
+| Production database | PostgreSQL with committed provider-specific migrations | Support concurrent writes, durable cloud storage, and later replicas |
 | Money | C# `decimal`, JSON numbers, database decimal columns | Prevent binary floating-point persistence errors |
 | User isolation | Scope every owned-resource query by JWT subject | Prevent insecure direct object references |
 | Demo | Create an isolated synthetic workspace on demand | Reviewers can explore without entering personal information |
@@ -33,7 +33,7 @@ the status table.
 | Portfolio | PORT-01–05 | Owned account/holding/transaction CRUD; summary and allocation | Account and holding forms, transaction history, totals, allocation | Cross-user and calculation tests | Complete |
 | Risk and allocation | RISK-01–03, PLAN-01–03 | Versioned questions, stored score, model comparison | Questionnaire, rationale, allocation gaps | Threshold and invalid-answer tests | Complete |
 | Goals and simulation | GOAL-01–02, SIM-01–02 | Goal CRUD/archive and decimal projection services | Goal form, progress, interactive simulator | Formula and real API workflow tests | Complete |
-| Delivery | NFRs, definition of done | Problem details, migrations, OpenAPI, health | Responsive/error/empty states | CI build, lint, 13 backend tests | Complete |
+| Delivery | NFRs, definition of done | Problem details, migrations, OpenAPI, database-aware health | Responsive/error/empty states | CI build, lint, API tests, Docker build, PostgreSQL integration | Complete |
 
 ## API conventions
 

@@ -2,9 +2,9 @@
 
 ## Resume bullets
 
-- Built PlanVest, a Next.js and ASP.NET Core investment-planning application with
-  JWT authentication, server-side logout invalidation, EF Core migrations, and
-  per-user authorization verified by real HTTP/SQLite integration tests.
+- Built PlanVest, a Dockerized Next.js and ASP.NET Core investment-planning
+  application with JWT authentication, server-side logout invalidation,
+  PostgreSQL migrations, and per-user authorization verified by real HTTP tests.
 - Implemented decimal portfolio allocation, a versioned 100-point risk model,
   generic allocation-gap analysis, and monthly-compounding goal projections in
   tested C# services, with a responsive TypeScript dashboard and synthetic demo.
@@ -16,11 +16,11 @@ complete, security-conscious product slice. A user can register or open an
 isolated demo, manage accounts and holdings, see calculated allocation, complete
 an explainable risk questionnaire, compare the portfolio with a generic model,
 and model a financial goal. The frontend is Next.js and TypeScript; the API is
-ASP.NET Core with EF Core and SQLite. I deliberately kept financial math on the
+ASP.NET Core with EF Core, PostgreSQL in production, and SQLite for local setup. I deliberately kept financial math on the
 server using decimal arithmetic, filtered every owned query by the authenticated
 user, and made logout invalidate tokens through a database-backed token version.
-The test suite includes real Kestrel and freshly migrated SQLite workflows, not
-only mocked services.
+The test suite includes real Kestrel workflows against both SQLite and a freshly
+migrated PostgreSQL database, not only mocked services.
 
 ## Five-minute walkthrough
 
@@ -56,9 +56,9 @@ reliable.
 
 ### Why SQLite?
 
-It gives a reviewer one-command startup and still demonstrates relational schema,
-foreign keys, migrations, and ownership queries. The mappings and service layer
-leave a straightforward path to PostgreSQL.
+It gives a reviewer one-command local startup while PostgreSQL remains the
+production provider. This keeps onboarding simple without accepting SQLite's
+single-writer and single-instance limitations in the deployed architecture.
 
 ### Why an aggregate dashboard endpoint?
 
@@ -87,10 +87,10 @@ useful example of why an in-memory provider alone is insufficient.
 - **Why `decimal`?** Binary floating point cannot exactly represent many decimal
   monetary values. Persisted amounts and backend formulas use `decimal`, with an
   explicit midpoint rounding policy for money.
-- **What would you add before production?** Managed identity or secure cookies,
-  email verification/password reset, refresh/revocation policy, PostgreSQL,
-  structured telemetry, secret management, CSRF review, dependency and security
-  scanning, and a privacy/legal review.
+- **What would you add before broader production use?** Managed identity or secure
+  cookies, email verification/password reset, refresh/revocation policy,
+  structured telemetry, stronger secret rotation, CSRF review, and a privacy/legal
+  review.
 - **What is deliberately not advice?** The questionnaire, model allocations, gap
   display, and projections are deterministic educational examples. The system
   never names a security to buy or sell and never guarantees a result.
