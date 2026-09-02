@@ -13,15 +13,17 @@ public static class AuthEndpoints
 {
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
-        var auth = app.MapGroup("/api/auth").RequireRateLimiting("auth").WithTags("Authentication");
+        var auth = app.MapGroup("/api/auth").WithTags("Authentication");
 
         auth.MapPost("/register", Register)
-            .AddEndpointFilter<RequestValidationFilter<RegisterRequest>>();
+            .AddEndpointFilter<RequestValidationFilter<RegisterRequest>>()
+            .RequireRateLimiting("auth");
         auth.MapPost("/login", Login)
-            .AddEndpointFilter<RequestValidationFilter<LoginRequest>>();
+            .AddEndpointFilter<RequestValidationFilter<LoginRequest>>()
+            .RequireRateLimiting("auth");
         auth.MapPost("/logout", Logout).RequireAuthorization();
         auth.MapGet("/me", Me).RequireAuthorization();
-        auth.MapPost("/demo-session", DemoSession);
+        auth.MapPost("/demo-session", DemoSession).RequireRateLimiting("auth");
         return app;
     }
 

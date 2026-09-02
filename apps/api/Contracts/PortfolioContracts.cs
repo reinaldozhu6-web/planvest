@@ -5,22 +5,22 @@ namespace PlanVest.Api.Contracts;
 
 public sealed record CreateAccountRequest(
     [property: Required, StringLength(80, MinimumLength = 2)] string Name,
-    AccountType AccountType);
+    [property: EnumDataType(typeof(AccountType))] AccountType AccountType);
 
 public sealed record UpdateAccountRequest(
     [property: Required, StringLength(80, MinimumLength = 2)] string Name,
-    AccountType AccountType);
+    [property: EnumDataType(typeof(AccountType))] AccountType AccountType);
 
 public sealed record UpsertHoldingRequest(
     [property: Required, StringLength(20, MinimumLength = 1)] string Symbol,
     [property: Required, StringLength(120, MinimumLength = 2)] string AssetName,
-    AssetClass AssetClass,
+    [property: EnumDataType(typeof(AssetClass))] AssetClass AssetClass,
     [property: Range(typeof(decimal), "0.000001", "1000000000")] decimal Quantity,
     [property: Range(typeof(decimal), "0", "1000000000")] decimal AverageCost,
     [property: Range(typeof(decimal), "0", "1000000000")] decimal CurrentPrice);
 
 public sealed record CreateTransactionRequest(
-    TransactionType Type,
+    [property: EnumDataType(typeof(TransactionType))] TransactionType Type,
     Guid? HoldingId,
     [property: Range(typeof(decimal), "0", "1000000000")] decimal Quantity,
     [property: Range(typeof(decimal), "0", "1000000000")] decimal Price,

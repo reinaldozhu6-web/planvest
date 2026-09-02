@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using PlanVest.Api.Data;
 using PlanVest.Api.Endpoints;
+using PlanVest.Api.Infrastructure;
 using PlanVest.Api.Models;
 using PlanVest.Api.Services;
 
@@ -32,6 +33,7 @@ builder.Services.AddScoped<PortfolioService>();
 builder.Services.AddScoped<DemoSeeder>();
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
     context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier);
+builder.Services.AddExceptionHandler<BadHttpRequestExceptionHandler>();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
@@ -43,6 +45,10 @@ builder.Services.AddCors(options => options.AddPolicy("web", policy => policy
 
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Jwt:Key is not configured.");
+if (!builder.Environment.IsDevelopment()
+    && jwtKey.StartsWith("development-only-", StringComparison.OrdinalIgnoreCase))
+    throw new InvalidOperationException(
+        "The development JWT signing key cannot be used outside Development.");
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -81,12 +87,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 builder.Services.AddAuthorization();
-builder.Services.AddRateLimiter(options => options.AddFixedWindowLimiter("auth", limiter =>
+var authPermitLimit = Math.Max(1,
+    builder.Configuration.GetValue("RateLimiting:AuthPermitLimit", 10));
+builder.Services.AddRateLimiter(options =>
 {
-    limiter.PermitLimit = 10;
-    limiter.Window = TimeSpan.FromMinutes(1);
-    limiter.QueueLimit = 0;
-}));
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown-client",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = authPermitLimit,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+});
 
 var app = builder.Build();
 

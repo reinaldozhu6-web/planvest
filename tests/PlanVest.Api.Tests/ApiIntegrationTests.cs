@@ -35,6 +35,17 @@ public sealed class ApiIntegrationTests : IClassFixture<PlanVestApiHost>
         Assert.Equal(HttpStatusCode.Created, accountResponse.StatusCode);
         var accountId = (await accountResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
 
+        var invalidAccountType = await client.PostAsJsonAsync("/api/accounts",
+            new { name = "Invalid account", accountType = 999 });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidAccountType.StatusCode);
+
+        var unknownAccountType = await client.PostAsJsonAsync("/api/accounts",
+            new { name = "Unknown account", accountType = "DefinitelyNotAnAccountType" });
+        Assert.Equal(HttpStatusCode.BadRequest, unknownAccountType.StatusCode);
+
+        var accountsAfterInvalidRequests = await client.GetFromJsonAsync<JsonElement>("/api/accounts");
+        Assert.Equal(1, accountsAfterInvalidRequests.GetArrayLength());
+
         var holdingResponse = await client.PostAsJsonAsync($"/api/accounts/{accountId}/holdings", new
         {
             symbol = "TEST",
@@ -45,6 +56,30 @@ public sealed class ApiIntegrationTests : IClassFixture<PlanVestApiHost>
             currentPrice = 100m
         });
         Assert.Equal(HttpStatusCode.Created, holdingResponse.StatusCode);
+        var holdingId = (await holdingResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+
+        var invalidAssetClass = await client.PostAsJsonAsync($"/api/accounts/{accountId}/holdings", new
+        {
+            symbol = "BAD",
+            assetName = "Invalid asset class",
+            assetClass = 999,
+            quantity = 1m,
+            averageCost = 1m,
+            currentPrice = 1m
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidAssetClass.StatusCode);
+
+        var invalidTransactionType = await client.PostAsJsonAsync(
+            $"/api/accounts/{accountId}/transactions", new
+            {
+                type = 999,
+                holdingId,
+                quantity = 1m,
+                price = 1m,
+                amount = 1m,
+                transactionDate = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd")
+            });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidTransactionType.StatusCode);
 
         var dashboardResponse = await client.GetAsync("/api/dashboard");
         var dashboardBody = await dashboardResponse.Content.ReadAsStringAsync();
@@ -94,6 +129,32 @@ public sealed class ApiIntegrationTests : IClassFixture<PlanVestApiHost>
         });
         Assert.Equal(HttpStatusCode.Created, riskResponse.StatusCode);
 
+        var invalidGoalType = await client.PostAsJsonAsync("/api/goals", new
+        {
+            name = "Invalid type",
+            goalType = 999,
+            targetAmount = 1_000m,
+            currentAmount = 0m,
+            targetDate = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)).ToString("yyyy-MM-dd"),
+            monthlyContribution = 0m,
+            assumedAnnualReturn = 0m,
+            status = "Active"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidGoalType.StatusCode);
+
+        var invalidGoalStatus = await client.PostAsJsonAsync("/api/goals", new
+        {
+            name = "Invalid status",
+            goalType = "Other",
+            targetAmount = 1_000m,
+            currentAmount = 0m,
+            targetDate = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)).ToString("yyyy-MM-dd"),
+            monthlyContribution = 0m,
+            assumedAnnualReturn = 0m,
+            status = 999
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidGoalStatus.StatusCode);
+
         var goalResponse = await client.PostAsJsonAsync("/api/goals", new
         {
             name = "Interview goal",
@@ -136,7 +197,9 @@ public sealed class PlanVestApiHost : IAsyncLifetime
     public HttpClient Client { get; }
     public string Output => output.ToString();
 
-    public PlanVestApiHost()
+    public PlanVestApiHost() : this(null) { }
+
+    internal PlanVestApiHost(int? authPermitLimit)
     {
         var port = AvailablePort();
         var repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
@@ -162,7 +225,10 @@ public sealed class PlanVestApiHost : IAsyncLifetime
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Testing";
         start.Environment["ASPNETCORE_URLS"] = $"http://127.0.0.1:{port}";
         start.Environment["ConnectionStrings__DefaultConnection"] = $"Data Source={databasePath}";
+        start.Environment["Jwt__Key"] = "testing-only-signing-key-never-use-in-production-2026";
         start.Environment["DOTNET_ROLL_FORWARD"] = "Major";
+        if (authPermitLimit is not null)
+            start.Environment["RateLimiting__AuthPermitLimit"] = authPermitLimit.Value.ToString();
 
         process = new Process { StartInfo = start };
         process.OutputDataReceived += (_, args) => { if (args.Data is not null) output.AppendLine(args.Data); };
@@ -222,4 +288,36 @@ public sealed class PlanVestApiHost : IAsyncLifetime
     {
         if (File.Exists(path)) File.Delete(path);
     }
+}
+
+public sealed class AuthRateLimitIntegrationTests : IClassFixture<RateLimitedPlanVestApiHost>
+{
+    private readonly HttpClient client;
+
+    public AuthRateLimitIntegrationTests(RateLimitedPlanVestApiHost host) => client = host.Client;
+
+    [Fact]
+    public async Task AuthRateLimit_IsClientPartitionedAndReturnsTooManyRequests()
+    {
+        var first = await client.PostAsync("/api/auth/demo-session", null);
+        var second = await client.PostAsync("/api/auth/demo-session", null);
+        var rejected = await client.PostAsync("/api/auth/demo-session", null);
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
+
+        var firstBody = await first.Content.ReadFromJsonAsync<JsonElement>();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            firstBody.GetProperty("accessToken").GetString());
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/auth/me")).StatusCode);
+    }
+}
+
+public sealed class RateLimitedPlanVestApiHost : IAsyncLifetime
+{
+    private readonly PlanVestApiHost inner = new(authPermitLimit: 2);
+    public HttpClient Client => inner.Client;
+    public Task InitializeAsync() => inner.InitializeAsync();
+    public Task DisposeAsync() => inner.DisposeAsync();
 }

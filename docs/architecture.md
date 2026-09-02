@@ -97,7 +97,8 @@ correctness explicit and prevents unbounded cross-user materialization.
 ## Reliability and verification
 
 - RFC 7807 problem responses include a trace ID.
-- Authentication requests use a fixed-window rate limiter.
+- Registration, login, and demo-session requests use a per-client-IP fixed-window
+  rate limiter; rejected requests return HTTP 429.
 - OpenAPI is available in development.
 - Unit tests cover risk thresholds, decimal allocation, goal progress, and
   projection boundaries.

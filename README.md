@@ -79,9 +79,12 @@ The API listens on `http://localhost:5080`, applies committed migrations to
 `apps/api/planvest.db`, and exposes Swagger in development at
 `http://localhost:5080/swagger`.
 
-The committed JWT key is explicitly development-only. For a deployed instance,
-provide `Jwt__Key`, the database connection string, and allowed web origin
-through a secret manager or environment configuration.
+The fixed local JWT key exists only in `appsettings.Development.json`. Production
+does not inherit it: startup fails unless `Jwt__Key` is provided, and the API
+rejects keys carrying the `development-only-` prefix outside Development. For a
+deployed instance, provide a strong random `Jwt__Key`, the database connection
+string, and allowed web origin through a secret manager or environment
+configuration. Never copy the committed development key into a public runtime.
 
 ### 2. Start the web app
 
@@ -128,8 +131,9 @@ Swagger is the complete, executable contract.
 - Passwords use ASP.NET Core's adaptive password hasher and are never logged.
 - JWTs expire after 30 minutes. Logout increments a server-checked token version,
   invalidating previously issued tokens for that user.
-- Authentication endpoints are rate-limited. CORS accepts only the configured
-  web origin.
+- Registration, login, and demo-session requests are rate-limited per client IP
+  and return HTTP `429` when the limit is reached. CORS accepts only the
+  configured web origin.
 - Cross-user IDs return `404` without disclosing ownership.
 - Persisted quantities and money use C# `decimal`; displayed monetary rounding
   uses `MidpointRounding.AwayFromZero`.

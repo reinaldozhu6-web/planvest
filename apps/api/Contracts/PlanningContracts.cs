@@ -43,13 +43,13 @@ public sealed record AllocationComparisonResponse(
 
 public sealed record UpsertGoalRequest(
     [property: Required, StringLength(100, MinimumLength = 2)] string Name,
-    GoalType GoalType,
+    [property: EnumDataType(typeof(GoalType))] GoalType GoalType,
     [property: Range(typeof(decimal), "1", "1000000000")] decimal TargetAmount,
     [property: Range(typeof(decimal), "0", "1000000000")] decimal CurrentAmount,
     DateOnly TargetDate,
     [property: Range(typeof(decimal), "0", "1000000000")] decimal MonthlyContribution,
     [property: Range(typeof(decimal), "0", "30")] decimal AssumedAnnualReturn,
-    GoalStatus Status = GoalStatus.Active);
+    [property: EnumDataType(typeof(GoalStatus))] GoalStatus Status = GoalStatus.Active);
 
 public sealed record GoalResponse(
     Guid Id,
