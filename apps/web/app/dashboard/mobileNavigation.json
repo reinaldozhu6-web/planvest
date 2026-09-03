@@ -1,0 +1,11 @@
+{
+  "items": [
+    { "label": "Dashboard", "href": "#overview" },
+    { "label": "Portfolio", "href": "#portfolio" },
+    { "label": "Transactions", "href": "#transactions" },
+    { "label": "Asset Allocation", "href": "#allocation" },
+    { "label": "Risk Assessment", "href": "#risk" },
+    { "label": "Goals", "href": "#goals" }
+  ],
+  "logoutLabel": "Logout"
+}
