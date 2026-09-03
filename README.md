@@ -1,68 +1,152 @@
 # PlanVest
 
-PlanVest is an educational, full-stack investment-planning workspace built as a
-software-engineering portfolio project. It lets a user record simulated accounts
-and holdings, understand asset allocation, complete an explainable risk
-assessment, compare against a generic model allocation, and project progress
-toward financial goals.
+[![Live demo](https://img.shields.io/badge/live_demo-open-2563eb)](https://planvest-pi.vercel.app)
+[![API health](https://img.shields.io/badge/API-health-16a34a)](https://planvest-production.up.railway.app/api/health)
+[![CI](https://github.com/reinaldozhu6-web/planvest/actions/workflows/ci.yml/badge.svg)](https://github.com/reinaldozhu6-web/planvest/actions/workflows/ci.yml)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000)](apps/web)
+[![ASP.NET Core](https://img.shields.io/badge/ASP.NET_Core-8-512bd4)](apps/api)
 
-> PlanVest does not connect to brokerages, execute trades, calculate taxes, or
-> provide financial or investment advice. Demo values are synthetic and future
-> returns are never guaranteed.
+PlanVest is a deployed full-stack investment-planning application built as a
+Software Developer / Co-op portfolio project. It demonstrates authenticated,
+user-isolated workflows across a responsive Next.js client, an ASP.NET Core API,
+and PostgreSQL persistence.
 
-## What the MVP demonstrates
+Users can record simulated accounts, holdings, and transactions; inspect asset
+allocation; complete an explainable risk assessment; compare their portfolio
+with a generic model allocation; and plan progress toward financial goals.
 
-- Registration, password hashing, short-lived JWT authentication, and real
-  server-side logout invalidation
-- Per-user authorization on accounts, holdings, transactions, assessments, and
-  goals, including cross-user isolation tests
-- Account and holding CRUD, a transaction history, decimal market-value math,
-  and live asset allocation
-- A versioned seven-question risk model with thresholds, rationale, and generic
-  Conservative, Balanced, and Growth allocations
-- Goal CRUD and archiving, progress tracking, future-value projections, and
-  required-contribution calculations
-- An isolated synthetic demo workspace that a reviewer can open without sharing
-  personal information
-- PostgreSQL production migrations, SQLite local development, OpenAPI, RFC 7807
-  errors, rate limiting, responsive UI, CI, unit tests, and real HTTP integration
-  tests against both database providers
+**[Open the live application](https://planvest-pi.vercel.app)** ·
+**[Check API health](https://planvest-production.up.railway.app/api/health)** ·
+**[Read the architecture notes](docs/architecture.md)**
+
+> PlanVest is an educational planning tool. It does not connect to brokerages,
+> execute trades, provide tax advice, recommend individual securities, or
+> guarantee returns. All demo data is synthetic.
+
+## Quick product tour
+
+1. Open the [live demo](https://planvest-pi.vercel.app).
+2. Select **Explore demo** to create a fresh, isolated synthetic workspace.
+3. Review the dashboard, portfolio, transactions, allocation, risk result, and
+   goals without entering personal information.
+4. On a phone-sized screen, use the navigation drawer to move between the same
+   workflows.
+
+The planned README screenshot set and capture guidance are documented in
+[Portfolio presentation](docs/PORTFOLIO.md). Screenshots are not represented as
+finished assets until production-safe captures have been reviewed and committed.
+
+## Core functionality
+
+- **Authentication:** registration, password hashing, 30-minute JWT sessions,
+  server-side logout invalidation, auth rate limiting, and protected routes.
+- **Portfolio management:** account and holding CRUD, decimal market-value math,
+  transaction history, and live allocation summaries.
+- **Risk assessment:** a versioned seven-question model with explainable scoring,
+  thresholds, rationale, and Conservative, Balanced, or Growth model allocations.
+- **Goal planning:** goal CRUD and archiving, progress tracking, future-value
+  projections, and required-contribution calculations.
+- **Dashboard:** an aggregate read model for portfolio totals, allocation, risk,
+  goals, and recent activity.
+- **Demo isolation:** every demo session creates a separate synthetic user and
+  data graph rather than sharing a mutable global account.
+- **Responsive navigation:** the desktop sidebar is retained on larger screens;
+  a keyboard-dismissible drawer exposes the complete workflow on mobile.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  Browser[Next.js / React client] -->|Bearer JWT + JSON| API[ASP.NET Core minimal API]
-  API --> Auth[Password hasher + token-version validation]
-  API --> Services[Portfolio, risk, and goal services]
-  API --> DB[(PostgreSQL production / SQLite local)]
+  Browser[Browser] --> Web[Next.js 16 / React 19\nVercel]
+  Web -->|HTTPS + JSON + bearer JWT| API[ASP.NET Core 8 API\nRailway Docker service]
+  API --> Auth[Password hashing\nJWT + token-version validation]
+  API --> Services[Portfolio, risk, goal\nand dashboard services]
+  Services --> EF[Entity Framework Core 8]
+  EF -->|private Railway network| PG[(PostgreSQL 16)]
+  EF -. Development / test .-> SQLite[(SQLite)]
 ```
 
-The web client owns presentation and form state. The API is authoritative for
-identity, authorization, validation, persistence, and all financial
-calculations. User-owned queries are filtered by the authenticated JWT subject;
-a resource ID by itself never grants access.
+The web client owns presentation and temporary form state. The API is
+authoritative for identity, authorization, validation, persistence, and financial
+calculations. Every user-owned query is scoped by the authenticated JWT subject;
+a resource ID alone never grants access.
 
 ```text
 apps/web/                   Next.js client and typed API adapter
 apps/api/Endpoints/         Thin HTTP endpoint modules
 apps/api/Models/            Relational domain model
 apps/api/Services/          Deterministic business logic
-apps/api/Data/Migrations/   Reproducible PostgreSQL production schema
+apps/api/Data/Migrations/   Reproducible PostgreSQL schema
 tests/PlanVest.Api.Tests/   Unit and real-process integration tests
-docs/                       PRD, implementation contract, architecture, interview guide
+docs/                       PRD, architecture, deployment, portfolio notes
 ```
 
-See [the approved PRD](docs/PlanVest_MVP_PRD_v1.md),
+See the [approved MVP PRD](docs/PlanVest_MVP_PRD_v1.md),
 [implementation contract](docs/IMPLEMENTATION.md), and
 [architecture notes](docs/architecture.md) for the decisions behind the code.
 
-## Technology
+## Technology stack
 
-- Next.js 16, React 19, TypeScript, Recharts, Lucide
-- ASP.NET Core 8, C#, EF Core 8, PostgreSQL, SQLite, OpenAPI
-- xUnit and GitHub Actions
-- Node.js 22 and .NET 8 in CI
+| Layer | Technology |
+| --- | --- |
+| Web | Next.js 16, React 19, TypeScript 5, Recharts, Lucide |
+| API | C#, ASP.NET Core 8 minimal APIs, OpenAPI |
+| Data | Entity Framework Core 8, PostgreSQL 16, SQLite |
+| Authentication | ASP.NET Core password hashing, JWT, token-version invalidation |
+| Testing | xUnit, real Kestrel HTTP integration tests, Node test runner |
+| Delivery | GitHub Actions, multi-stage Docker build, Railway, Vercel |
+
+## Testing and CI
+
+Every pull request runs three independent GitHub Actions jobs:
+
+| Job | Checks |
+| --- | --- |
+| Web | Clean dependency install, ESLint, production Next.js build |
+| API | Restore, Release build, xUnit suite, production Docker build |
+| PostgreSQL | API integration workflow, fresh migration, pending-model check |
+
+The API suite covers authentication and logout invalidation, cross-user resource
+isolation, demo seeding, portfolio and planning workflows, decimal financial
+boundaries, error responses, SQLite startup, and PostgreSQL persistence. The
+mobile navigation has a focused configuration/anchor test and was browser-checked
+at 390 px; the desktop layout was checked at 1440 px.
+
+Run the repository checks locally:
+
+```bash
+dotnet test PlanVest.sln --configuration Release
+
+cd apps/web
+npm test
+npm run lint
+npm run build
+```
+
+## Deployment
+
+The live reference deployment uses Vercel for the Next.js client and Railway for
+the Dockerized ASP.NET Core API and PostgreSQL database.
+
+```mermaid
+flowchart LR
+  User[User] -->|HTTPS| Vercel[Vercel\nNext.js web]
+  Vercel -->|CORS-restricted HTTPS| Railway[Railway\nASP.NET Core container]
+  Railway -->|private network only| Database[(Railway PostgreSQL)]
+  GitHub[GitHub main] -->|automatic builds| Vercel
+  GitHub -->|Docker build| Railway
+```
+
+- Web: [https://planvest-pi.vercel.app](https://planvest-pi.vercel.app)
+- API health:
+  [https://planvest-production.up.railway.app/api/health](https://planvest-production.up.railway.app/api/health)
+- Production CORS allows only the configured Vercel origin.
+- Secrets and the PostgreSQL private connection remain in Railway variables.
+- The API uses Railway's forwarded-header boundary and per-client auth rate-limit
+  partitioning behind the reverse proxy.
+
+The full provisioning, environment-variable, migration, backup, and rollback
+procedure is in the [deployment runbook](docs/DEPLOYMENT.md).
 
 ## Run locally
 
@@ -76,17 +160,10 @@ dotnet restore PlanVest.sln
 dotnet run --project apps/api/PlanVest.Api.csproj
 ```
 
-The API listens on `http://localhost:5080`, creates the local SQLite database at
-`apps/api/planvest.db`, and exposes Swagger in development at
-`http://localhost:5080/swagger`. PostgreSQL migrations are reserved for the
-production provider so local onboarding does not require Docker.
-
-The fixed local JWT key exists only in `appsettings.Development.json`. Production
-does not inherit it: startup fails unless `Jwt__Key` is provided, and the API
-rejects keys carrying the `development-only-` prefix outside Development. For a
-deployed instance, provide a strong random `Jwt__Key`, the database connection
-string, and allowed web origin through a secret manager or environment
-configuration. Never copy the committed development key into a public runtime.
+The API listens on `http://localhost:5080`, creates a local SQLite database at
+`apps/api/planvest.db`, and exposes Swagger in Development at
+`http://localhost:5080/swagger`. Local onboarding does not require Docker or
+PostgreSQL.
 
 ### 2. Start the web app
 
@@ -98,89 +175,51 @@ npm run dev
 ```
 
 Open `http://localhost:3000`. Choose **Explore demo** for an immediately seeded,
-isolated workspace, or register a new account and build an empty portfolio.
+isolated workspace, or register a user and start with an empty portfolio.
 
-## Verify the repository
-
-```bash
-dotnet test PlanVest.sln --configuration Release
-
-cd apps/web
-npm run lint
-npm run build
-```
-
-The API suite covers financial boundaries and runs workflows against a real
-Kestrel process and fresh SQLite database. CI additionally builds the production
-Docker image, applies migrations to an empty PostgreSQL 16 database, and runs a
-PostgreSQL API workflow before performing the clean frontend lint/build.
-
-## Deploy
-
-The low-cost reference deployment uses Vercel for the Next.js client and Railway
-for the Dockerized API plus PostgreSQL. No production credential belongs in this
-repository. See [the deployment runbook](docs/DEPLOYMENT.md) for required
-variables, provisioning order, validation, backups, and rollback.
-
-### PostgreSQL migrations
-
-The repository pins the EF Core CLI through its local tool manifest. Set
-`PLANVEST_MIGRATIONS_CONNECTION` to a protected Npgsql connection string, then
-run migrations from the repository root:
-
-```bash
-dotnet tool restore
-dotnet tool run dotnet-ef database update \
-  --project apps/api --startup-project apps/api --context AppDbContext
-```
-
-Create future PostgreSQL migrations with `dotnet tool run dotnet-ef migrations
-add <MigrationName>` plus the same project, startup-project, and context options.
-Review the generated SQL/model snapshot and take a database backup before
-applying any production migration. Application rollback does not automatically
-reverse schema changes; use backward-compatible migrations and the recovery
-procedure in the deployment runbook.
+The fixed local JWT key exists only in `appsettings.Development.json`.
+Production startup requires a strong `Jwt__Key`, a PostgreSQL connection string,
+and an exact `WebOrigin`; secrets must remain in the deployment platform rather
+than source control.
 
 ## Representative API surface
 
 | Area | Endpoints |
 | --- | --- |
-| Identity | `POST /api/auth/register`, `login`, `logout`, `demo-session`; `GET /api/auth/me` |
-| Portfolio | Account and holding CRUD, transaction creation, portfolio summary/allocation |
-| Planning | Risk questions/assessment/latest result and allocation comparison |
-| Goals | Goal CRUD/archive plus future-value and required-contribution simulations |
-| Dashboard | `GET /api/dashboard` aggregate read model |
+| Identity | Register, login, logout, demo session, current user |
+| Portfolio | Account and holding CRUD, transactions, summary, allocation |
+| Planning | Risk questions, assessment, latest result, allocation comparison |
+| Goals | Goal CRUD/archive, future value, required contributions |
+| Dashboard | Aggregate authenticated dashboard read model |
 
-JSON enums are strings, dates use ISO 8601, and failures use problem details.
-Swagger is the complete, executable contract.
+JSON enums are strings, dates use ISO 8601, and failures use RFC 7807 problem
+details. Swagger is the complete executable contract in Development.
 
-## Security and financial correctness
+## Security and engineering decisions
 
+- User-owned records are filtered by authenticated user ID; cross-user IDs return
+  `404` without disclosing ownership.
 - Passwords use ASP.NET Core's adaptive password hasher and are never logged.
-- JWTs expire after 30 minutes. Logout increments a server-checked token version,
-  invalidating previously issued tokens for that user.
-- Registration, login, and demo-session requests are rate-limited per client IP
-  and return HTTP `429` when the limit is reached. CORS accepts only the
-  configured web origin.
-- Railway proxy headers are processed only when `Hosting__Provider=Railway`; the
-  trusted network and one-hop limit keep client-IP rate limiting meaningful
-  behind TLS termination.
-- Cross-user IDs return `404` without disclosing ownership.
-- Persisted quantities and money use C# `decimal`; displayed monetary rounding
-  uses `MidpointRounding.AwayFromZero`.
-- Demo users receive unique synthetic workspaces and inaccessible random
-  passwords.
+- Logout increments a server-checked token version, invalidating issued tokens.
+- Money and quantities use C# `decimal`; display rounding uses
+  `MidpointRounding.AwayFromZero`.
+- Unsupported database providers and missing production configuration fail at
+  startup instead of silently falling back to SQLite.
+- CI applies the complete migration chain to an empty PostgreSQL 16 database and
+  checks for model drift.
 
-For a public production deployment, move browser authentication to an HttpOnly,
-Secure, SameSite cookie through a same-origin backend-for-frontend or use an
-audited identity provider. The session-storage bearer design is intentionally a
-transparent, interview-scale trade-off, not the final hardening step.
+The current browser session uses session-storage bearer authentication so the
+split-origin design remains transparent for an interview-scale demo. A higher
+security production product should move authentication to an HttpOnly, Secure,
+SameSite cookie behind a same-origin backend-for-frontend or use an audited
+identity provider.
 
-## Current delivery status
+## Scope and next steps
 
-The MVP is merged into `main`. Deployment-readiness work is isolated on
-`codex/deployment-readiness`; public cloud resources are not created until the
-product owner separately approves deployment. Brokerage/market-data connections,
-refresh tokens, password reset, email verification, CSV export, and production
-telemetry remain intentionally deferred.
+The deployed MVP includes the workflows listed above. Brokerage connectivity,
+live market data, trade execution, refresh tokens, password reset, email
+verification, CSV export, production observability, and automated browser E2E
+coverage are intentionally outside the current scope.
 
+Potential next increments are listed in [Portfolio presentation](docs/PORTFOLIO.md)
+so planned work stays clearly separated from shipped functionality.
